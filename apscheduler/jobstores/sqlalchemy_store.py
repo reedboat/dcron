@@ -77,7 +77,7 @@ class SQLAlchemyJobStore(JobStore):
     def update_job(self, job):
         job_dict = job.__getstate__()
         update = self.jobs_t.update().where(self.jobs_t.c.id == job.id).\
-            values(next_run_time=job_dict['next_run_time'], runs=job_dict['runs'])
+            values(**job_dict)
         self.engine.execute(update)
 
     def get_job(self, id):
