@@ -2,10 +2,13 @@
 # -*- coding:utf-8 -*-
 # vim set expandtab
 
-from apscheduler.job import Job
-from apscheduler.jobstores.sqlalchemy_store import SQLAlchemyJobStore
 from dateutil.tz import gettz
 from datetime import datetime, timedelta
+
+from hotqueue import HotQueue
+
+from apscheduler.job import Job
+from apscheduler.jobstores.sqlalchemy_store import SQLAlchemyJobStore
 from apscheduler.triggers import IntervalTrigger
 from apscheduler.scripts import HttpScript
 
@@ -24,8 +27,11 @@ if __name__ == '__main__':
         store.add_job(job)
 
     print job
-    if job:
-        print job.run()
-        now = datetime.now(local_tz)
-        print job.compute_next_run_time(now)
-        print job.get_run_times(now+timedelta(seconds=60))
+
+    job.trigger = IntervalTrigger(defaults, seconds=5)
+    store.update_job(job)
+
+    queue = HotQueue('job_changes')
+    queue.put({'job_id':job.id, 'opt_type':'update'})
+
+
