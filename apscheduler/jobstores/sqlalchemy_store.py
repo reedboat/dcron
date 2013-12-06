@@ -38,14 +38,15 @@ class SQLAlchemyJobStore(JobStore):
             tablename, metadata or MetaData(),
             Column('id', Integer, Sequence(tablename + '_id_seq', optional=True), primary_key=True),
             Column('trigger', pickle_coltype, nullable=False),
-            Column('script', pickle_coltype(1024), nullable=False),
-            Column('name', Unicode(1024)),
+            Column('script', pickle_coltype, nullable=False),
+            Column('name', Unicode(1024))
             #Column('misfire_grace_time', Integer, nullable=False),
             #Column('coalesce', Boolean, nullable=False),
             #Column('max_runs', Integer),
             #Column('max_instances', Integer),
             #Column('next_run_time', DateTime, nullable=False),
-            #Column('runs', BigInteger))
+            #Column('runs', BigInteger)
+        )
 
         self.jobs_t.create(self.engine, True)
 
@@ -78,6 +79,22 @@ class SQLAlchemyJobStore(JobStore):
         update = self.jobs_t.update().where(self.jobs_t.c.id == job.id).\
             values(next_run_time=job_dict['next_run_time'], runs=job_dict['runs'])
         self.engine.execute(update)
+
+    def get_job(self, id):
+        select = self.jobs_t.select().where(self.jobs_t.c.id == id)
+        row = self.engine.execute(select).fetchone()
+        if row:
+            try:
+                job = Job.__new__(Job)
+                job_dict = dict(row.items())
+                print job_dict
+                job.__setstate__(job_dict)
+                return job.__getstate__()
+            except Exception  as e:
+                job_name = job_dict.get('name', '(unknown)')
+                logger.exception('Unable to restore job "%s"', job_name)
+        print 1
+        return None
 
     def close(self):
         self.engine.dispose()

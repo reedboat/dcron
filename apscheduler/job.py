@@ -3,7 +3,7 @@ from apscheduler.triggers import Trigger
 from apscheduler.scripts import Script
 
 class Job(object):
-    def __init__(self, id, name, script, trigger):
+    def __init__(self, trigger, script, id=None, name=None):
         if not isinstance(script, Script):
             raise ValueError("job's script is not valid a Script instance")
         if not isinstance(trigger, Trigger):
@@ -31,6 +31,14 @@ class Job(object):
             run_time  = self.trigger.get_next_fire_time(run_time + increment)
         
         return run_times
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state.pop('next_run_time')
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__ == state
 
     def __repr__(self):
         return "<Job(id=%d, name='%s', script='%s', trigger='%s'>" % (
