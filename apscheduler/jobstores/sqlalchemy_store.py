@@ -84,16 +84,10 @@ class SQLAlchemyJobStore(JobStore):
         select = self.jobs_t.select().where(self.jobs_t.c.id == id)
         row = self.engine.execute(select).fetchone()
         if row:
-            try:
-                job = Job.__new__(Job)
-                job_dict = dict(row.items())
-                print job_dict
-                job.__setstate__(job_dict)
-                return job.__getstate__()
-            except Exception  as e:
-                job_name = job_dict.get('name', '(unknown)')
-                logger.exception('Unable to restore job "%s"', job_name)
-        print 1
+            job = Job.__new__(Job)
+            job_dict = dict(row.items())
+            job.__setstate__(job_dict)
+            return job
         return None
 
     def close(self):

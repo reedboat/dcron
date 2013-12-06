@@ -1,13 +1,18 @@
 from datetime import datetime, timedelta
 from apscheduler.triggers import Trigger
 from apscheduler.scripts import Script
+from apscheduler.util import datetime_repr
 
 class Job(object):
+    id = 0 
+    next_run_time = None
+    name = '' 
+
     def __init__(self, trigger, script, id=None, name=None):
-        if not isinstance(script, Script):
-            raise ValueError("job's script is not valid a Script instance")
-        if not isinstance(trigger, Trigger):
-            raise ValueError("job's trigger is not valid a Trigger instance")
+        #if not isinstance(script, Script):
+        #    raise ValueError("job's script is not valid a Script instance")
+        #if not isinstance(trigger, Trigger):
+        #    raise ValueError("job's trigger is not valid a Trigger instance")
 
         self.id   = id
         self.name = name
@@ -39,6 +44,8 @@ class Job(object):
 
     def __setstate__(self, state):
         self.__dict__ == state
+        for k,v in state.items():
+            self.__dict__[str(k)] = v
 
     def __repr__(self):
         return "<Job(id=%d, name='%s', script='%s', trigger='%s'>" % (

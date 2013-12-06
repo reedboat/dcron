@@ -21,11 +21,13 @@ if __name__ == '__main__':
     #Base.metadata.create_all(engine)
     store = SQLAlchemyJobStore(url='sqlite:////tmp/task.db', tablename='tasks')
     job   = store.get_job(3)
-    if not job:
-        job = Job(id=3, name='BaiduCheck', script=script, trigger=trigger)
-        store.add_job(job)
+    #if not job:
+    #    job = Job(id=3, name='BaiduCheck', script=script, trigger=trigger)
+    #    store.add_job(job)
 
-    print job.run()
-    now = datetime.now(local_tz)
-    print job.compute_next_run_time(now)
-    print job.get_run_times(now+timedelta(seconds=60))
+    print job
+    if job:
+        print job.run()
+        now = datetime.now(local_tz)
+        print job.compute_next_run_time(now)
+        print job.get_run_times(now+timedelta(seconds=60))
