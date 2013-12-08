@@ -57,6 +57,7 @@ class LocalScheduler(object):
             raise SchedulerAlreadyRunningError
 
         config = combine_opts(gconfig, 'main.', options)
+        self._config = config
 
         self.misfire_grace_time = int(config.pop('misfire_grace_time', 1))
         self.coalesce = asbool(config.pop('coalesce', True))
@@ -210,7 +211,8 @@ class LocalScheduler(object):
                 break
 
     def _sync_changes(self):
-        dirty = False
+        count = 0
+        max_items_once = int(self._config.pop('max_items_once', 0))
         while not self._stopped:
             msg = self._change_queue.get(block=True, timeout=1)
             if msg:
@@ -219,11 +221,14 @@ class LocalScheduler(object):
                 if job_id > 0 and isinstance(opt_type, basestring):
                     self._apply_change(opt_type, job_id)
                     self.logger.info('apply change "%s" for job(%d)', opt_type, job_id)
-                    dirty = True
-            else:
-                if dirty:
-                    dirty = False
+                    count += 1
+
+            # 如果数据已取完 或者 已经取了足够多;  则通知主线程，并将dirty = False, count=0
+            if not msg or (max_items_once > 0 and count > max_items_once):
+                if count > 0:
+                    self.logger.info('wakeup main thread by sync thread with %d updates' % count)
                     self.wakeup.set()
+                    count = 0
 
 
     def _apply_change(self, opt_type, job_id):
@@ -242,7 +247,7 @@ class LocalScheduler(object):
                         with self._jobs_lock:
                             self._jobs[job_id] = job
 
-            elif opt_type == 'delete':
+            elif opt_type == 'delete' or opt_type == 'pause':
                 with self._jobs_lock:
                     del self._jobs[job_id]
             else:
