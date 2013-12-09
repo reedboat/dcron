@@ -17,6 +17,8 @@ from apscheduler.threadpool import ThreadPool
 from apscheduler.job import Job
 from apscheduler.jobstores.sqlalchemy_store import SQLAlchemyJobStore
 
+logger = getLogger(__name__)
+
 class SchedulerAlreadyRunningError(Exception):
     """
     Raised when attempting to start or configure the scheduler when it's already running.
@@ -31,7 +33,7 @@ class LocalScheduler(object):
     _stopped = False
     _main_thread = None
 
-    #初始化worker线程，reporter线程，updater线程
+    #init worker thread pool，reporter thread，updater thread
     def __init__(self, gconfig={}, **options):
         self._wakeup = Event()
         self._jobstore = None
@@ -40,6 +42,7 @@ class LocalScheduler(object):
         self._log_queue = None
         self._change_queue = None
 
+        self._jobs_locks   = {}
         self._jobs_lock = Lock()
         self._log_queue_lock = Lock()
 
@@ -138,15 +141,17 @@ class LocalScheduler(object):
             for job in jobs:
                 job.compute_next_run_time(now)
                 self._jobs[job.id] = job
+                self._jobs_locks[job.id] = Lock()
 
-    # 加载Job池
+    # loads jobs pool from db
     def load_jobs(self):
-        self._job_store.load_jobs()
+        jobs = self._job_store.load_jobs()
         now = self.now()
-        for job in self._job_store.jobs:
-            job.compute_next_run_time(now)
-            with self._jobs_lock:
+        with self._jobs_lock:
+            for job in jobs:
+                job.compute_next_run_time(now)
                 self._jobs[job.id] = job
+                self._jobs_locks[job.id] = Lock()
 
     def _main_loop(self):
         print "get into the main loop"
@@ -169,23 +174,26 @@ class LocalScheduler(object):
         next_wakeup_time = None
         print self._jobs
 
-        with self._jobs_lock:
-            for job in self._jobs.values():
-                run_time_list = job.get_run_times(now)
+        for job in self._jobs.values():
+            run_time_list = job.get_run_times(now)
 
-                if run_time_list:
-                    self._worker_threadpool.submit(self._run_job, job, run_time_list)
-                    if job.compute_next_run_time(now + timedelta(microseconds=1)):
-                        #self._jobs.update(job.id, job)
-                        pass
-                    else:
-                        self._jobs.pop(job.id)
+            if run_time_list:
+                self._worker_threadpool.submit(self._run_job, job, run_time_list)
 
-                print 'job.next_run_time:', job.id,  job.next_run_time
-                if not next_wakeup_time:
-                    next_wakeup_time = job.next_run_time
-                elif job.next_run_time:
-                    next_wakeup_time = min(next_wakeup_time, job.next_run_time)
+                with self._jobs_locks[job.id]:
+                    next_run_time = job.compute_next_run_time(now + timedelta(microseconds=1)):
+
+                if next_run_time
+                    #self._jobs.update(job.id, job)
+                    pass
+                else:
+                    self._jobs.pop(job.id)
+
+            print 'job.next_run_time:', job.id,  job.next_run_time
+            if not next_wakeup_time:
+                next_wakeup_time = job.next_run_time
+            elif job.next_run_time:
+                next_wakeup_time = min(next_wakeup_time, job.next_run_time)
 
         return next_wakeup_time
 
@@ -200,6 +208,9 @@ class LocalScheduler(object):
                 #self._log_queue.enqueue([now, job.id, 'missed', job.next_run_time])
             else:
                 try:
+                    # maybe add a timeout handle by join thread. 
+                    # t = Thread(job.run); t.start(); t.join(timeout)
+                    # refer: http://augustwu.iteye.com/blog/554827
                     result = job.run()
                     print 'job runned success'
                     #self._log_queue.enqueue([now, job.id, 'run', job.next_run_time])
@@ -214,7 +225,11 @@ class LocalScheduler(object):
         count = 0
         max_items_once = int(self._config.pop('max_items_once', 0))
         while not self._stopped:
-            msg = self._change_queue.get(block=True, timeout=1)
+            try:
+                msg = self._change_queue.get(block=True, timeout=1)
+            except:
+                logger.exception('get sync item failed')
+
             if msg:
                 opt_type = msg['opt_type']
                 job_id   = msg['job_id']
@@ -223,7 +238,6 @@ class LocalScheduler(object):
                     self.logger.info('apply change "%s" for job(%d)', opt_type, job_id)
                     count += 1
 
-            # 如果数据已取完 或者 已经取了足够多;  则通知主线程，并将dirty = False, count=0
             if not msg or (max_items_once > 0 and count > max_items_once):
                 if count > 0:
                     self.logger.info('wakeup main thread by sync thread with %d updates' % count)
@@ -233,25 +247,36 @@ class LocalScheduler(object):
 
     def _apply_change(self, opt_type, job_id):
             if opt_type == 'add' or opt_type == 'update':
-                job = self._job_store.get_job(job_id)
+                try:
+                    job = self._job_store.get_job(job_id)
+                except Exception as e:
+                    self.logger.exception(e)
+
                 if job:
                     if opt_type == 'add':
                         now = self.now()
                         job.compute_next_run_time(now)
-                        with self._jobs_lock:
+                        if not self._jobs.has_key(job_id):
                             self._jobs[job_id] = job
+                            self._jobs_locks[job_id] = Lock()
+                        else:
+                            logger.exception("apply channge '%s job(id=%d, name=%s)' failed" % (opt_type, job.id, job.name))
                     else:
                         #!todo check if compute next_run_time again is necessary
                         now = self.now()
                         job.compute_next_run_time(now)
-                        with self._jobs_lock:
+                        with self._jobs_locks[job_id]:
                             self._jobs[job_id] = job
 
             elif opt_type == 'delete' or opt_type == 'pause':
-                with self._jobs_lock:
+                with self._jobs_locks[job_id]:
                     del self._jobs[job_id]
+                if not self._jobs.has_key(job_id):
+                    del self._jobs_locks[job_id]
+                else:
+                    logger.exception("apply channge '%s job(id=%d, name=%s)' failed" % (opt_type, job_id, self._jobs[job_id].name))
             else:
-                self.logger.exception('opt %s to job(%d) is not supported', opt_type, job_id)
+                self.logger.exception('opt %s job(%d) to jobs pool is not supported' % (opt_type, job_id))
 
 
 class Watcher:
