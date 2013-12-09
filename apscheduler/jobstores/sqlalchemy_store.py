@@ -73,6 +73,7 @@ class SQLAlchemyJobStore(JobStore):
                 job_name = job_dict.get('name', '(unknown)')
                 logger.exception('Unable to restore job "%s"', job_name)
         self.jobs = jobs
+        return jobs
 
     def update_job(self, job):
         job_dict = job.__getstate__()
@@ -82,12 +83,22 @@ class SQLAlchemyJobStore(JobStore):
 
     def get_job(self, id):
         select = self.jobs_t.select().where(self.jobs_t.c.id == id)
-        row = self.engine.execute(select).fetchone()
+        try:
+            row = self.engine.execute(select).fetchone()
+        except Exception as e:
+            #todo
+            logger.exception(e)
+
         if row:
-            job = Job.__new__(Job)
-            job_dict = dict(row.items())
-            job.__setstate__(job_dict)
-            return job
+            try:
+                job = Job.__new__(Job)
+                job_dict = dict(row.items())
+                job.__setstate__(job_dict)
+                return job
+            except Exception:
+                job_name = job_dict.get('name', 'unknown')
+                logger.exception("Unable to restore job '%s'", job_name)
+
         return None
 
     def close(self):

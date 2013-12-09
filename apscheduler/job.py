@@ -19,13 +19,20 @@ class Job(object):
         self.trigger = trigger
         self.next_run_time = None
         #self.coalesce = coalesce
-        #self.misfire_grace_time = misfire_grace_time
+        self.misfire_grace_time = misfire_grace_time
+        self._lock = Lock()
 
     def run(self):
         return self.script.run()
 
     def compute_next_run_time(self, now):
-        self.next_run_time = self.trigger.get_next_fire_time(now)
+        try:
+            next_run_time = self.trigger.get_next_fire_time(now)
+            if next_run_time != self.next_run_time:
+                self.next_run_time = next_run_time
+        except:
+            logger.exception("get next fire time of job(id=%d, name=%s) from time %s" % (self.id, self.name, now))
+            self.next_run_time = None
         return self.next_run_time
     
     def get_run_times(self, now):
@@ -34,20 +41,26 @@ class Job(object):
         increment = timedelta(microseconds=1)
         while run_time and run_time <= now:
             run_times.append(run_time)
-            run_time  = self.trigger.get_next_fire_time(run_time + increment)
+            try:
+                run_time = self.trigger.get_next_fire_time(run_time + increment)
+            except:
+                logger.exception("get next fire time of job(id=%d, name=%s) from time %s" % (self.id, self.name, run_time+increment))
+                run_time = None
         
         return run_times
 
     def __getstate__(self):
         state = self.__dict__.copy()
-        state.pop('next_run_time')
+        state.pop('_lock', None)
         return state
 
     def __setstate__(self, state):
-        self.__dict__ == state
+        state['_lock'] = Lock()
         for k,v in state.items():
             self.__dict__[str(k)] = v
-        self.__dict__['next_run_time'] = None
+        self.__dict__ = state
+        if self.__dict__.has_key('next_run_time'):
+            self.__dict__['next_run_time'] = None
 
     def __repr__(self):
         return "<Job(id=%d, name='%s', script='%s', trigger='%s'>" % (
@@ -61,3 +74,4 @@ class Job(object):
         if isinstance(other, Job):
             return self.id is not None and other.id == self.id or self is other
         return NotImplemented
+
