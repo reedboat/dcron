@@ -3,6 +3,7 @@ Stores jobs in a database table using SQLAlchemy.
 """
 import pickle
 import logging
+import traceback
 
 import sqlalchemy
 
@@ -69,7 +70,9 @@ class SQLAlchemyJobStore(JobStore):
                 job_dict = dict(row.items())
                 job.__setstate__(job_dict)
                 jobs.append(job)
-            except Exception:
+            except Exception as e:
+                print e
+                traceback.print_exc(e)
                 job_name = job_dict.get('name', '(unknown)')
                 logger.exception('Unable to restore job "%s"', job_name)
         self.jobs = jobs

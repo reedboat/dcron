@@ -17,7 +17,7 @@ from apscheduler.threadpool import ThreadPool
 from apscheduler.job import Job
 from apscheduler.jobstores.sqlalchemy_store import SQLAlchemyJobStore
 
-logger = getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 class SchedulerAlreadyRunningError(Exception):
     """
@@ -181,9 +181,9 @@ class LocalScheduler(object):
                 self._worker_threadpool.submit(self._run_job, job, run_time_list)
 
                 with self._jobs_locks[job.id]:
-                    next_run_time = job.compute_next_run_time(now + timedelta(microseconds=1)):
+                    next_run_time = job.compute_next_run_time(now + timedelta(microseconds=1))
 
-                if next_run_time
+                if next_run_time:
                     #self._jobs.update(job.id, job)
                     pass
                 else:
@@ -229,6 +229,7 @@ class LocalScheduler(object):
                 msg = self._change_queue.get(block=True, timeout=1)
             except:
                 logger.exception('get sync item failed')
+                msg = None
 
             if msg:
                 opt_type = msg['opt_type']

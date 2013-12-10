@@ -23,7 +23,6 @@ if __name__ == '__main__':
         job = Job(id=3, name='BaiduCheck', script=script, trigger=trigger)
         store.add_job(job)
 
-    print job
     if job:
         print job.run()
         now = datetime.now(local_tz)
