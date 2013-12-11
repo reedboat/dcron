@@ -51,8 +51,18 @@ class SQLAlchemyJobStore(JobStore):
 
         self.jobs_t.create(self.engine, True)
 
+    def normalize(self, job_dict):
+        row = {}
+        row['id'] = job_dict['id']
+        row['name'] = job_dict['name']
+        row['script'] = job_dict['script']
+        row['trigger'] = job_dict['trigger']
+        return row
+
+
     def add_job(self, job):
         job_dict = job.__getstate__()
+        job_dict = self.normalize(job_dict)
         result = self.engine.execute(self.jobs_t.insert().values(**job_dict))
         job.id = result.inserted_primary_key[0]
         self.jobs.append(job)
@@ -80,9 +90,10 @@ class SQLAlchemyJobStore(JobStore):
 
     def update_job(self, job):
         job_dict = job.__getstate__()
+        job_dict = self.normalize(job_dict)
         update = self.jobs_t.update().where(self.jobs_t.c.id == job.id).\
             values(**job_dict)
-        self.engine.execute(update)
+        return self.engine.execute(update)
 
     def get_job(self, id):
         select = self.jobs_t.select().where(self.jobs_t.c.id == id)
