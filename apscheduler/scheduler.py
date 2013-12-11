@@ -149,9 +149,31 @@ class LocalScheduler(object):
         now = self.now()
         with self._jobs_lock:
             for job in jobs:
-                job.compute_next_run_time(now)
+                self._add_job(job)
+
+    def _add_job(self, job):
+        try:
+            now = self.now()
+            job.compute_next_run_time(now)
+            if job.next_run_time:
                 self._jobs[job.id] = job
                 self._jobs_locks[job.id] = Lock()
+        except:
+            logger.exception("add job(id=%d, name=%s) failed" % (job.id, job.name))
+            return False
+
+        return True
+
+    def _remove_job(self, job_id):
+        try:
+            with self._jobs_locks[job_id]:
+                del self._jobs[job_id]
+            del self._jobs_locks[job_id]
+        except:
+            logger.exception("remove job(id=%d) failed" % (job_id))
+            return False
+
+        return True
 
     def _main_loop(self):
         print "get into the main loop"
@@ -183,11 +205,8 @@ class LocalScheduler(object):
                 with self._jobs_locks[job.id]:
                     next_run_time = job.compute_next_run_time(now + timedelta(microseconds=1))
 
-                if next_run_time:
-                    #self._jobs.update(job.id, job)
-                    pass
-                else:
-                    self._jobs.pop(job.id)
+                if not next_run_time:
+                    self._remove_job(job.id)
 
             print 'job.next_run_time:', job.id,  job.next_run_time
             if not next_wakeup_time:
@@ -235,14 +254,17 @@ class LocalScheduler(object):
                 opt_type = msg['opt_type']
                 job_id   = msg['job_id']
                 if job_id > 0 and isinstance(opt_type, basestring):
-                    self._apply_change(opt_type, job_id)
+                    try:
+                        self._apply_change(opt_type, job_id)
+                    except:
+                        pass
                     self.logger.info('apply change "%s" for job(%d)', opt_type, job_id)
                     count += 1
 
             if not msg or (max_items_once > 0 and count > max_items_once):
                 if count > 0:
                     self.logger.info('wakeup main thread by sync thread with %d updates' % count)
-                    self.wakeup.set()
+                    self._wakeup.set()
                     count = 0
 
 
@@ -255,11 +277,8 @@ class LocalScheduler(object):
 
                 if job:
                     if opt_type == 'add':
-                        now = self.now()
-                        job.compute_next_run_time(now)
                         if not self._jobs.has_key(job_id):
-                            self._jobs[job_id] = job
-                            self._jobs_locks[job_id] = Lock()
+                            self._add_job(job)
                         else:
                             logger.exception("apply channge '%s job(id=%d, name=%s)' failed" % (opt_type, job.id, job.name))
                     else:
@@ -270,12 +289,7 @@ class LocalScheduler(object):
                             self._jobs[job_id] = job
 
             elif opt_type == 'delete' or opt_type == 'pause':
-                with self._jobs_locks[job_id]:
-                    del self._jobs[job_id]
-                if not self._jobs.has_key(job_id):
-                    del self._jobs_locks[job_id]
-                else:
-                    logger.exception("apply channge '%s job(id=%d, name=%s)' failed" % (opt_type, job_id, self._jobs[job_id].name))
+                self._remove_job(job_id)
             else:
                 self.logger.exception('opt %s job(%d) to jobs pool is not supported' % (opt_type, job_id))
 
