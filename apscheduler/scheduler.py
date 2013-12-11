@@ -3,7 +3,7 @@
 # vim set expandtab
 
 
-import logging, sys, os, signal, traceback
+import logging, sys, os, signal, traceback, json
 sys.path.append('..')
 
 from threading import Thread, Event, Lock
@@ -14,8 +14,8 @@ from hotqueue import HotQueue
 
 from apscheduler.util import time_difference, asbool, combine_opts
 from apscheduler.threadpool import ThreadPool
-from apscheduler.job import Job
 from apscheduler.jobstores.sqlalchemy_store import SQLAlchemyJobStore
+from apscheduler.reporter import JobReporter
 
 logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s', filename='/tmp/crond.log')
 logger = logging.getLogger(__name__)
@@ -40,8 +40,8 @@ class LocalScheduler(object):
         self._jobstore = None
         self._jobs     = {}
         self.logger   = None
-        self._log_queue = None
-        self._change_queue = None
+        self._stats_queue = None
+        self._changes_queue = None
 
         self._jobs_locks   = {}
         self._jobs_lock = Lock()
@@ -81,7 +81,10 @@ class LocalScheduler(object):
 
         # config syncqueue
         syncqueue_opts = combine_opts(config, 'syncqueue.')
-        self._change_queue = HotQueue(**syncqueue_opts)
+        self._changes_queue = HotQueue(**syncqueue_opts)
+
+        statqueue_opts = combine_opts(config, 'statqueue.')
+        self._stats_queue = HotQueue(**statqueue_opts)
 
         # configure logger
         self.logger = logging.getLogger(__name__)
@@ -109,6 +112,10 @@ class LocalScheduler(object):
             self._updater_thread.setDaemon(self.daemonic)
             self._updater_thread.start()
             print 'update thread is started'
+
+            self._stater_thread = Thread(target = self._stat_runs, name = 'stat')
+            self._stater_thread.setDaemon(self.daemonic)
+            self._stater_thread.start()
 
     def shutdown(self, shutdown_threadpool=True, close_jobstore=True):
         if not self.running:
@@ -222,28 +229,51 @@ class LocalScheduler(object):
             grace_time = timedelta(seconds=self.misfire_grace_time)
             if difference > grace_time:
                 self.logger.warning('Run time of job "%s" was missed by %s', job, difference)
-                #self._log_queue.enqueue([now, job.id, 'missed', job.next_run_time])
+                self._put_stat({'job_id':job.id, 'status':'missed', 'next_run_time':job.next_run_time})
             else:
                 try:
                     # maybe add a timeout handle by join thread. 
                     # t = Thread(job.run); t.start(); t.join(timeout)
                     # refer: http://augustwu.iteye.com/blog/554827
+                    self._put_stat({'job_id':job.id, 'status':'running', 'time':now, 'next_run_time':job.next_run_time})
                     result = job.run()
                     print 'job runned success'
-                    #self._log_queue.enqueue([now, job.id, 'run', job.next_run_time])
+                    self._put_stat({'job_id':job.id, 'status':'succed', 'time':self.now()})
+
                 except:
                     self.logger.exception('Job "%s" raised an exception', job)
-                    #self._log_queue.enqueue([now, job.id, 'failed', job.next_run_time])
+                    self._put_stat({'job_id':job.id, 'status':'failed', 'time':self.now()})
 
             if self.coalesce:
                 break
+
+    def _put_stat(self, msg):
+        try:
+            self._stats_queue.put(msg)
+        except:
+            logger.exception('failed to put stat item ' + json.dumps(msg))
+
+
+    def _stat_runs(self):
+        while not self._stopped:
+            try: 
+                msg = self._stats_queue.get(block=True, timeout=1)
+            except:
+                logger.exception('get stat item failed')
+                msg = None
+
+            if msg:
+                try:
+                    self._stater.report(self, msg['job_id'], msg['status'], msg['run_time'], msg['next_run_time'])
+                except:
+                    logger.exception('report job status failed ' + json.dumps(msg))
 
     def _sync_changes(self):
         count = 0
         max_items_once = int(self._config.pop('max_items_once', 0))
         while not self._stopped:
             try:
-                msg = self._change_queue.get(block=True, timeout=1)
+                msg = self._changes_queue.get(block=True, timeout=1)
             except:
                 logger.exception('get sync item failed')
                 msg = None
@@ -348,6 +378,7 @@ if __name__ == '__main__':
         'jobstore.tablename': 'tasks',
 
         'syncqueue.name': 'job_changes',
+        'statqueue.name': 'job_stats'
     }
     Watcher()
     dcron = LocalScheduler(**config)

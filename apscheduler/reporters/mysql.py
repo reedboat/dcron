@@ -15,11 +15,13 @@ class SQLAlchemyReporter(Reporter):
         self.records_t = Table(
             tablename, metadata or MetaData(),
             Column('job_id', Integer, primary_key=True),
+            Column('runs', Integer, nullable=False),
             Column('failed', Integer, nullable=False),
             Column('missed', Integer, nullable=False),
             Column('succed', Integer, nullable=False),
             Column('last_run_time', Datetime, nullable=False),
-            Column('next_run_time', Datetime)
+            Column('next_run_time', Datetime),
+            Column('cost', Integer, nullable=False, default=0)
         )
         self.records_t.create(self.engine, True)
         
