@@ -1,8 +1,12 @@
 from datetime import timedelta
+from threading import Lock
+from logging import getLogger
 
 from apscheduler.triggers import Trigger
 from apscheduler.scripts import Script
 from apscheduler.util import datetime_repr
+
+logger = getLogger(__name__)
 
 class Job(object):
     coalesce = True
@@ -52,6 +56,7 @@ class Job(object):
     def __getstate__(self):
         state = self.__dict__.copy()
         state.pop('_lock', None)
+        state.pop('next_run_time', None)
         return state
 
     def __setstate__(self, state):
@@ -59,8 +64,8 @@ class Job(object):
         for k,v in state.items():
             self.__dict__[str(k)] = v
         self.__dict__ = state
-        if self.__dict__.has_key('next_run_time'):
-            self.__dict__['next_run_time'] = None
+        #if self.__dict__.has_key('next_run_time'):
+        self.__dict__['next_run_time'] = None
 
     def __repr__(self):
         return "<Job(id=%d, name='%s', script='%s', trigger='%s'>" % (
