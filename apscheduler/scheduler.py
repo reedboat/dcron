@@ -17,7 +17,8 @@ from apscheduler.threadpool import ThreadPool
 from apscheduler.job import Job
 from apscheduler.jobstores.sqlalchemy_store import SQLAlchemyJobStore
 
-logger = getLogger(__name__)
+logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s', filename='/tmp/crond.log')
+logger = logging.getLogger(__name__)
 
 class SchedulerAlreadyRunningError(Exception):
     """
@@ -83,10 +84,7 @@ class LocalScheduler(object):
         self._change_queue = HotQueue(**syncqueue_opts)
 
         # configure logger
-        self.logger = logging.getLogger('dcron')
-        fhd = logging.FileHandler('/tmp/crond.log')
-        fhd.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
-        self.logger.addHandler(fhd)
+        self.logger = logging.getLogger(__name__)
         self.logger.setLevel(logging.DEBUG)
 
 
@@ -328,7 +326,7 @@ if __name__ == '__main__':
 
     config = {
         'timezone': 'Asia/Chongqing',
-        'standalone': False,
+        'standalone': True,
         'daemonic': False,
 
         'jobstore.url' : 'sqlite:////tmp/task.db',
