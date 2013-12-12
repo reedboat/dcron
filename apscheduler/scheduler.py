@@ -229,30 +229,42 @@ class LocalScheduler(object):
             grace_time = timedelta(seconds=self.misfire_grace_time)
             if difference > grace_time:
                 self.logger.warning('Run time of job "%s" was missed by %s', job, difference)
-                self._put_stat({'job_id':job.id, 'status':'missed', 'next_run_time':job.next_run_time})
+                self._put_stat(job.id, 'missed', next_run_time=job.next_run_time)
             else:
                 try:
                     # maybe add a timeout handle by join thread. 
                     # t = Thread(job.run); t.start(); t.join(timeout)
                     # refer: http://augustwu.iteye.com/blog/554827
-                    self._put_stat({'job_id':job.id, 'status':'running', 'time':now, 'next_run_time':job.next_run_time})
+                    self._put_stat(job.id, 'running', type='begin', next_run_time=job.next_run_time)
                     result = job.run()
                     print 'job runned success'
-                    self._put_stat({'job_id':job.id, 'status':'succed', 'time':self.now()})
+                    end_time = self.now()
+                    cost = end_time - now
+                    self._put_stat(job.id, 'succed', cost=cost)
 
                 except:
                     self.logger.exception('Job "%s" raised an exception', job)
-                    self._put_stat({'job_id':job.id, 'status':'failed', 'time':self.now()})
+                    end_time = self.now()
+                    cost = end_time - now
+                    self._put_stat(job.id, 'failed', cost=cost)
 
             if self.coalesce:
                 break
 
-    def _put_stat(self, msg):
+
+    def _put_stat(self, job_id, status, next_run_time=None, type='end',  cost=0):
+        msg = {
+            'time': self.now(),
+            'type': type,
+            'job_id': job_id,
+            'status': status,
+            'next_run_time':next_run_time,
+            'cost': cost 
+        }
         try:
             self._stats_queue.put(msg)
         except:
             logger.exception('failed to put stat item ' + json.dumps(msg))
-
 
     def _stat_runs(self):
         while not self._stopped:
@@ -262,11 +274,13 @@ class LocalScheduler(object):
                 logger.exception('get stat item failed')
                 msg = None
 
-            if msg:
-                try:
-                    self._stater.report(self, msg['job_id'], msg['status'], msg['run_time'], msg['next_run_time'])
-                except:
-                    logger.exception('report job status failed ' + json.dumps(msg))
+            if not msg:
+                continue
+
+            try:
+                self._stater.report(self, **msg)
+            except:
+                logger.exception('report job status failed ' + json.dumps(msg))
 
     def _sync_changes(self):
         count = 0
