@@ -11,7 +11,9 @@ from apscheduler.jobstores.base import JobStore
 from apscheduler.job import Job
 
 try:
-    from sqlalchemy import *
+    from sqlalchemy import create_engine, Table, Column, MetaData
+    from sqlalchemy import Integer, DateTime, PickleType, Unicode, Sequence
+
 except ImportError:  # pragma: nocover
     raise ImportError('SQLAlchemyJobStore requires SQLAlchemy installed')
 
