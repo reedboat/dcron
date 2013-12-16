@@ -76,7 +76,7 @@ class SQLAlchemyJobStore(JobStore):
 
     def load_jobs(self):
         jobs = []
-        for row in self.engine.execute(select([self.jobs_t])):
+        for row in self.engine.execute(self.jobs_t.select()):
             try:
                 job = Job.__new__(Job)
                 job_dict = dict(row.items())

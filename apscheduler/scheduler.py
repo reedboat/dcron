@@ -3,7 +3,7 @@
 # vim set expandtab
 
 
-import logging, sys, os, signal, traceback, json
+import logging, sys, os, signal, traceback, json, pickle
 sys.path.append('..')
 
 from threading import Thread, Event, Lock
@@ -37,7 +37,8 @@ class LocalScheduler(object):
     #init worker thread pool，reporter thread，updater thread
     def __init__(self, gconfig={}, **options):
         self._wakeup = Event()
-        self._jobstore = None
+        self._job_store = None
+        self._stat_store = None
         self._jobs     = {}
         self.logger   = None
         self._stats_queue = None
@@ -83,6 +84,11 @@ class LocalScheduler(object):
         syncqueue_opts = combine_opts(config, 'syncqueue.')
         self._changes_queue = HotQueue(**syncqueue_opts)
 
+        # config statstore
+        statstore_opts = combine_opts(config, 'statstore.')
+        self._stat_store = JobReporter(**statstore_opts)
+
+        # config statqueue
         statqueue_opts = combine_opts(config, 'statqueue.')
         self._stats_queue = HotQueue(**statqueue_opts)
 
@@ -116,6 +122,7 @@ class LocalScheduler(object):
             self._stater_thread = Thread(target = self._stat_runs, name = 'stat')
             self._stater_thread.setDaemon(self.daemonic)
             self._stater_thread.start()
+            print 'stat thread is started'
 
     def shutdown(self, shutdown_threadpool=True, close_jobstore=True):
         if not self.running:
@@ -235,31 +242,28 @@ class LocalScheduler(object):
                     # maybe add a timeout handle by join thread. 
                     # t = Thread(job.run); t.start(); t.join(timeout)
                     # refer: http://augustwu.iteye.com/blog/554827
-                    self._put_stat(job.id, 'running', type='begin', next_run_time=job.next_run_time)
+                    self._put_stat(job.id, 'running', next_run_time=job.next_run_time)
                     result = job.run()
                     print 'job runned success'
-                    end_time = self.now()
-                    cost = end_time - now
+                    cost = self.now() - now
                     self._put_stat(job.id, 'succed', cost=cost)
 
                 except:
                     self.logger.exception('Job "%s" raised an exception', job)
-                    end_time = self.now()
-                    cost = end_time - now
+                    cost = self.now() - now
                     self._put_stat(job.id, 'failed', cost=cost)
 
             if self.coalesce:
                 break
 
 
-    def _put_stat(self, job_id, status, next_run_time=None, type='end',  cost=0):
+    def _put_stat(self, job_id, status, next_run_time=None, cost=timedelta(seconds=0)):
         msg = {
-            'time': self.now(),
-            'type': type,
+            'time': pickle.dumps(self.now()),
             'job_id': job_id,
             'status': status,
-            'next_run_time':next_run_time,
-            'cost': cost 
+            'next_run_time':pickle.dumps(next_run_time),
+            'cost': cost.total_seconds() + cost.microseconds / 1000000
         }
         try:
             self._stats_queue.put(msg)
@@ -278,9 +282,12 @@ class LocalScheduler(object):
                 continue
 
             try:
-                self._stater.report(self, **msg)
+                msg["time"] = pickle.loads(msg['time'])
+                msg["next_run_time"] = pickle.loads(msg['next_run_time'])
+                self._stat_store.report(**msg)
             except:
-                logger.exception('report job status failed ' + json.dumps(msg))
+                traceback.print_exc()
+                logger.exception('report job status failed ' + pickle.dumps(msg))
 
     def _sync_changes(self):
         count = 0
@@ -385,11 +392,15 @@ if __name__ == '__main__':
 
     config = {
         'timezone': 'Asia/Chongqing',
-        'standalone': True,
+        'standalone': False,
         'daemonic': False,
 
         'jobstore.url' : 'sqlite:////tmp/task.db',
         'jobstore.tablename': 'tasks',
+
+        'statstore.url': 'sqlite:////tmp/task.db',
+        'statstore.tablename': 'job_stats',
+
 
         'syncqueue.name': 'job_changes',
         'statqueue.name': 'job_stats'

@@ -29,7 +29,7 @@ class JobReporter(object):
             Column('last_run_time', DateTime),
             Column('next_run_time', DateTime),
             Column('status', Unicode(64), nullable=False, default=u''),
-            Column('cost', Integer, nullable=False, default=0)
+            Column('last_cost', Integer, nullable=False, default=0)
         )
         self.statistics_t.create(self.engine, True)
         
@@ -37,7 +37,6 @@ class JobReporter(object):
         select = self.statistics_t.select().where(self.statistics_t.c.job_id == job_id)
         row = self.engine.execute(select).fetchone()
         if row:
-            print row
             return dict(row)
         else:
             return {
@@ -48,16 +47,22 @@ class JobReporter(object):
                 'missed': 0,
                 'last_run_time': None,
                 'next_run_time': None,
-                'cost': 0,
+                'last_cost': 0,
+                'status': '',
                 'is_new_record': True, 
             }
 
-    def report(self, job_id, status, run_time, next_run_time, cost=0):
-        running_dict = self.get(job_id)
-        if running_dict is None:
+    def report(self, job_id, status, time, next_run_time, cost=0):
+
+        if status not in ['running', 'missed', 'failed', 'succed']:
+            print 'status error'
             return False
 
-        print running_dict
+        running_dict = self.get(job_id)
+        if running_dict is None:
+            print 'running dict error'
+            return False
+
         is_new_record = False
         if running_dict.has_key('is_new_record'):
             del running_dict['is_new_record'] 
@@ -68,7 +73,7 @@ class JobReporter(object):
 
         if status == 'running':
             running_dict['runs'] += 1
-            running_dict['last_run_time'] = run_time
+            running_dict['last_run_time'] = time
             running_dict['next_run_time'] = next_run_time
         elif status == 'missed':
             running_dict[status] += 1
@@ -77,7 +82,7 @@ class JobReporter(object):
             running_dict[status] += 1
             running_dict['last_cost'] = cost
 
-        print running_dict
+        print "running_dict:", running_dict
 
         try:
             if is_new_record:

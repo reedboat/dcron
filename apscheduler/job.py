@@ -73,7 +73,8 @@ class Job(object):
         )
 
     def __str__(self):
-        return '<Job(%d:%s, trigger: %s, next run at: %s)>' % (self.id, self.name, self.trigger, datetime_repr(self.next_run_time))
+        id = 0 if self.id is None else self.id
+        return '<Job(%d:%s, trigger: %s, next run at: %s)>' % (id, self.name, self.trigger, datetime_repr(self.next_run_time))
 
     def __eq__(self, other):
         if isinstance(other, Job):
